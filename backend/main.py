@@ -14,6 +14,10 @@ import database as db
 
 app = FastAPI(title="KingsIQ API", version="1.0.0")
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 # Serve ad screenshots as static files → http://localhost:8000/screenshots/file.png
 SCREENSHOTS_DIR = Path(__file__).parent / "screenshots"
 SCREENSHOTS_DIR.mkdir(exist_ok=True)
