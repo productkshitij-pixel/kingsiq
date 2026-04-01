@@ -52,14 +52,14 @@ const Sidebar = ({ collapsed, setCollapsed }) => {
           className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0"
           style={{ background: GOLD, color: NAVY }}
         >
-          K
+          S
         </div>
         {!collapsed && (
           <div className="overflow-hidden">
             <p className="font-bold text-base leading-tight" style={{ color: GOLD }}>
-              KingsIQ
+              SMIQ
             </p>
-            <p className="text-xs text-blue-300 truncate">Kings' Education Dubai</p>
+            <p className="text-xs text-blue-300 truncate">Kshitij</p>
           </div>
         )}
       </div>
