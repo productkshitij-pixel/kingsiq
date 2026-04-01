@@ -1,3 +1,16 @@
 node_modules/
 frontend/node_modules/
 .cache/
+
+# Environment files — never commit secrets
+.env
+.env.local
+frontend/.env
+frontend/.env.local
+backend/.env
+
+# Build output
+frontend/dist/
+frontend/.vite/
+__pycache__/
+*.pyc

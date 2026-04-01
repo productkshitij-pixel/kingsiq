@@ -183,3 +183,80 @@ def update_meta_ad_type(ad_id: str, body: AdTypeUpdate):
     except Exception as e:
         print(f"[meta-ads/type] ERROR: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ─── User Management ─────────────────────────────────────────────────────────
+
+import requests as _requests
+
+SUPABASE_URL_ENV  = os.getenv("SUPABASE_URL", "")
+SERVICE_ROLE_KEY  = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+
+def _admin_headers():
+    return {
+        "apikey":        SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
+        "Content-Type":  "application/json",
+    }
+
+
+class CreateUserBody(BaseModel):
+    email:    str
+    password: str
+    role:     str = "admin"   # 'admin' or 'super_admin'
+
+
+@app.post("/api/users/create")
+def create_user(body: CreateUserBody):
+    """Create a new Supabase Auth user and insert their profile row."""
+    allowed_roles = {"admin", "super_admin"}
+    if body.role not in allowed_roles:
+        return {"success": False, "error": "role must be admin or super_admin"}
+    try:
+        # 1. Create auth user (email already confirmed, no verification email)
+        auth_url = f"{SUPABASE_URL_ENV}/auth/v1/admin/users"
+        auth_resp = _requests.post(auth_url, headers=_admin_headers(), json={
+            "email":            body.email,
+            "password":         body.password,
+            "email_confirm":    True,
+        })
+        if auth_resp.status_code not in (200, 201):
+            return {"success": False, "error": auth_resp.json().get("msg", auth_resp.text)}
+        user_id = auth_resp.json()["id"]
+
+        # 2. Insert profile row
+        profile_url = f"{SUPABASE_URL_ENV}/rest/v1/profiles"
+        _requests.post(profile_url, headers=_admin_headers(), json={
+            "id":    user_id,
+            "email": body.email,
+            "role":  body.role,
+        })
+
+        return {"success": True, "user_id": user_id}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: str):
+    """Delete a Supabase Auth user (profile row cascades via FK)."""
+    try:
+        url  = f"{SUPABASE_URL_ENV}/auth/v1/admin/users/{user_id}"
+        resp = _requests.delete(url, headers=_admin_headers())
+        if resp.status_code in (200, 204):
+            return {"success": True}
+        return {"success": False, "error": resp.text}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/users")
+def list_users():
+    """Return all profiles."""
+    try:
+        url  = f"{SUPABASE_URL_ENV}/rest/v1/profiles"
+        hdrs = {**_admin_headers(), "Prefer": "return=representation"}
+        resp = _requests.get(url, headers=hdrs, params={"order": "created_at.asc"})
+        return {"success": True, "data": resp.json()}
+    except Exception as e:
+        return {"success": False, "data": [], "error": str(e)}

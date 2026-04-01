@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Layout from '../components/Layout'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 import {
   Globe,
   FileSearch,
@@ -181,11 +182,15 @@ const LiveSearch = () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${BACKEND_URL}/api/google-ads/results`)
-      const json = await res.json()
-      setData(json.data || [])
+      const { data: rows, error: sbError } = await supabase
+        .from('google_ads_live')
+        .select('*')
+        .order('keyword_type', { ascending: true })
+        .order('keyword', { ascending: true })
+      if (sbError) throw sbError
+      setData(rows || [])
     } catch (e) {
-      setError('Could not load results. Make sure the backend is running.')
+      setError('Could not load results.')
     } finally {
       setLoading(false)
     }
@@ -236,14 +241,16 @@ const LiveSearch = () => {
             <span className="text-blue-500">Auto-refreshes every Monday</span>
           </p>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={scraping}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition"
-        >
-          <RefreshCw size={14} strokeWidth={2} className={scraping ? 'animate-spin' : ''} />
-          {scraping ? 'Scraping…' : 'Refresh Now'}
-        </button>
+        {isSuperAdmin && (
+          <button
+            onClick={handleRefresh}
+            disabled={scraping}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition"
+          >
+            <RefreshCw size={14} strokeWidth={2} className={scraping ? 'animate-spin' : ''} />
+            {scraping ? 'Scraping…' : 'Refresh Now'}
+          </button>
+        )}
       </div>
 
       {/* Legend */}
@@ -359,6 +366,7 @@ const StatusDashboard = ({ data }) => {
 // ─── Ads Transparency Section ────────────────────────────────────────────────
 
 const AdsTransparency = () => {
+  const { isSuperAdmin } = useAuth()
   const [data, setData]         = useState([])
   const [loading, setLoading]   = useState(true)
   const [scraping, setScraping] = useState(false)
@@ -368,9 +376,11 @@ const AdsTransparency = () => {
   const fetchResults = useCallback(async () => {
     setLoading(true)
     try {
-      const res  = await fetch(`${BACKEND_URL}/api/ads-transparency/results`)
-      const json = await res.json()
-      setData(json.data || [])
+      const { data: rows } = await supabase
+        .from('ads_transparency_results')
+        .select('*')
+        .order('advertiser', { ascending: true })
+      setData(rows || [])
     } catch {
       setData([])
     } finally {
@@ -391,15 +401,16 @@ const AdsTransparency = () => {
         : null
       const poll = setInterval(async () => {
         try {
-          const res  = await fetch(`${BACKEND_URL}/api/ads-transparency/results`)
-          const json = await res.json()
-          const rows = json.data || []
-          const newLatest = rows.length
+          const { data: rows } = await supabase
+            .from('ads_transparency_results')
+            .select('*')
+            .order('advertiser', { ascending: true })
+          const newLatest = (rows || []).length
             ? rows.reduce((l, r) => !l || new Date(r.scraped_at) > new Date(l) ? r.scraped_at : l, null)
             : null
           // Stop polling when data is fresher than when we started, or after 10 min
           if ((newLatest && newLatest !== prevLatest) || Date.now() - startedAt > 600_000) {
-            setData(rows)
+            setData(rows || [])
             setScraping(false)
             clearInterval(poll)
           }
@@ -427,14 +438,16 @@ const AdsTransparency = () => {
             {lastUpdated ? `Last scraped: ${fmtDate(lastUpdated)}` : 'Not yet scraped — click Refresh to run'}
           </p>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={scraping}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition"
-        >
-          <RefreshCw size={14} strokeWidth={2} className={scraping ? 'animate-spin' : ''} />
-          {scraping ? 'Scraping…' : 'Refresh Now'}
-        </button>
+        {isSuperAdmin && (
+          <button
+            onClick={handleRefresh}
+            disabled={scraping}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition"
+          >
+            <RefreshCw size={14} strokeWidth={2} className={scraping ? 'animate-spin' : ''} />
+            {scraping ? 'Scraping…' : 'Refresh Now'}
+          </button>
+        )}
       </div>
 
       {/* Scraping notice */}
@@ -699,11 +712,10 @@ const MetaAdCard = ({ ad, isNew, onCategoryUpdate, onTypeUpdate, onClick }) => {
     if (!confirmCat) return
     setUpdating(true)
     try {
-      await fetch(`${BACKEND_URL}/api/meta-ads/${ad.id}/category`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audience_category: confirmCat.id }),
-      })
+      await supabase
+        .from('meta_ads_results')
+        .update({ audience_category: confirmCat.id })
+        .eq('id', ad.id)
       onCategoryUpdate(ad.id, confirmCat.id)
     } catch (e) { console.error(e) }
     setUpdating(false)
@@ -714,11 +726,10 @@ const MetaAdCard = ({ ad, isNew, onCategoryUpdate, onTypeUpdate, onClick }) => {
     if (!confirmType) return
     setUpdatingType(true)
     try {
-      await fetch(`${BACKEND_URL}/api/meta-ads/${ad.id}/type`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ad_type: confirmType.id }),
-      })
+      await supabase
+        .from('meta_ads_results')
+        .update({ ad_type: confirmType.id })
+        .eq('id', ad.id)
       onTypeUpdate(ad.id, confirmType.id)
     } catch (e) { console.error(e) }
     setUpdatingType(false)
@@ -1264,6 +1275,7 @@ const AdDetailModal = ({ ads, idx, onClose, onNavigate }) => {
 // ─── Meta Ads Library Section ─────────────────────────────────────────────────
 
 const MetaAdsLibrary = () => {
+  const { isSuperAdmin } = useAuth()
   const [subTab, setSubTab]                   = useState('library')
   const [ads, setAds]                         = useState([])
   const [competitors, setCompetitors]         = useState([])
@@ -1283,14 +1295,17 @@ const MetaAdsLibrary = () => {
   const fetchResults = useCallback(async (date = null) => {
     setLoading(true)
     try {
-      const url = date
-        ? `${BACKEND_URL}/api/meta-ads/results?scrape_date=${date}`
-        : `${BACKEND_URL}/api/meta-ads/results`
-      const res  = await fetch(url)
-      const json = await res.json()
-      setAds(json.data || [])
-      setDates(json.dates || [])
-      if (json.selected_date) setSelectedDate(json.selected_date)
+      const { data: allRows } = await supabase
+        .from('meta_ads_results')
+        .select('*')
+        .order('scrape_date', { ascending: false })
+      const rows = allRows || []
+      const allDates = [...new Set(rows.map(r => r.scrape_date))].sort().reverse()
+      const targetDate = (date && allDates.includes(date)) ? date : (allDates[0] || null)
+      const filtered = targetDate ? rows.filter(r => r.scrape_date === targetDate) : rows
+      setAds(filtered)
+      setDates(allDates)
+      if (targetDate) setSelectedDate(targetDate)
     } catch { setAds([]) }
     setLoading(false)
   }, [])
@@ -1313,12 +1328,18 @@ const MetaAdsLibrary = () => {
       const prevDate = selectedDate
       const poll = setInterval(async () => {
         try {
-          const res  = await fetch(`${BACKEND_URL}/api/meta-ads/results`)
-          const json = await res.json()
-          if ((json.selected_date && json.selected_date !== prevDate) || Date.now() - started > 900_000) {
-            setAds(json.data || [])
-            setDates(json.dates || [])
-            if (json.selected_date) setSelectedDate(json.selected_date)
+          const { data: allRows } = await supabase
+            .from('meta_ads_results')
+            .select('*')
+            .order('scrape_date', { ascending: false })
+          const rows = allRows || []
+          const allDates = [...new Set(rows.map(r => r.scrape_date))].sort().reverse()
+          const latestDate = allDates[0] || null
+          if ((latestDate && latestDate !== prevDate) || Date.now() - started > 900_000) {
+            const filtered = latestDate ? rows.filter(r => r.scrape_date === latestDate) : rows
+            setAds(filtered)
+            setDates(allDates)
+            if (latestDate) setSelectedDate(latestDate)
             setScraping(false)
             clearInterval(poll)
           }
@@ -1476,17 +1497,19 @@ const MetaAdsLibrary = () => {
                   {dates.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
               )}
-              <button
-                onClick={handleRefresh}
-                disabled={scraping}
-                className="flex items-center gap-2 px-4 py-2 text-white text-sm font-semibold rounded-lg transition disabled:opacity-60"
-                style={{ backgroundColor: '#002D72' }}
-                onMouseEnter={e => { if (!scraping) e.currentTarget.style.backgroundColor = '#001E50' }}
-                onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#002D72' }}
-              >
-                <RefreshCw size={14} strokeWidth={2} className={scraping ? 'animate-spin' : ''} />
-                {scraping ? 'Scraping…' : 'Refresh Now'}
-              </button>
+              {isSuperAdmin && (
+                <button
+                  onClick={handleRefresh}
+                  disabled={scraping}
+                  className="flex items-center gap-2 px-4 py-2 text-white text-sm font-semibold rounded-lg transition disabled:opacity-60"
+                  style={{ backgroundColor: '#002D72' }}
+                  onMouseEnter={e => { if (!scraping) e.currentTarget.style.backgroundColor = '#001E50' }}
+                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#002D72' }}
+                >
+                  <RefreshCw size={14} strokeWidth={2} className={scraping ? 'animate-spin' : ''} />
+                  {scraping ? 'Scraping…' : 'Refresh Now'}
+                </button>
+              )}
             </div>
           </div>
 

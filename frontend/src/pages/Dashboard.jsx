@@ -3,57 +3,39 @@ import Layout from '../components/Layout'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 
-const KINGS_NAVY    = '#002D72'
-const KINGS_GOLD    = '#C9A227'
-const KINGS_CRIMSON = '#C41230'
-
 const StatCard = ({ label, value, sub }) => (
-  <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-    <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">{label}</p>
-    <p className="text-3xl font-bold mt-1" style={{ color: KINGS_NAVY }}>{value}</p>
+  <div className="bg-white rounded-xl border border-gray-200 p-5">
+    <p className="text-sm text-gray-500">{label}</p>
+    <p className="text-3xl font-bold text-gray-900 mt-1">{value}</p>
     {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
   </div>
 )
 
-// statusColor: 'navy' | 'gold' | 'crimson'
-const borderColorMap = {
-  navy:    KINGS_NAVY,
-  gold:    KINGS_GOLD,
-  crimson: KINGS_CRIMSON,
-}
-const iconBgMap = {
-  navy:    'rgba(0,45,114,0.07)',
-  gold:    'rgba(201,162,39,0.10)',
-  crimson: 'rgba(196,18,48,0.07)',
-}
-const badgeBgMap = {
-  navy:    { bg: 'rgba(0,45,114,0.08)', color: KINGS_NAVY },
-  gold:    { bg: 'rgba(201,162,39,0.15)', color: '#7A5E00' },
-  crimson: { bg: 'rgba(196,18,48,0.08)', color: KINGS_CRIMSON },
-}
-
-const ModuleCard = ({ title, description, icon, status, statusColor }) => {
-  const borderColor = borderColorMap[statusColor]
-  const iconBg      = iconBgMap[statusColor]
-  const badge       = badgeBgMap[statusColor]
+const ModuleCard = ({ title, description, icon, status, statusColor, linkTo }) => {
+  const colorMap = {
+    blue: 'border-l-blue-500',
+    green: 'border-l-green-500',
+    orange: 'border-l-orange-400',
+  }
+  const iconBgMap = {
+    blue: 'bg-blue-50',
+    green: 'bg-green-50',
+    orange: 'bg-orange-50',
+  }
+  const badgeMap = {
+    blue: 'bg-blue-50 text-blue-600',
+    green: 'bg-green-50 text-green-600',
+    orange: 'bg-orange-50 text-orange-600',
+  }
 
   return (
-    <div
-      className="bg-white rounded-xl border border-gray-100 border-l-4 p-6 flex flex-col shadow-sm"
-      style={{ borderLeftColor: borderColor }}
-    >
-      <div
-        className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl mb-4"
-        style={{ backgroundColor: iconBg }}
-      >
+    <div className={`bg-white rounded-xl border border-gray-200 border-l-4 ${colorMap[statusColor]} p-6 flex flex-col`}>
+      <div className={`w-12 h-12 rounded-xl ${iconBgMap[statusColor]} flex items-center justify-center text-2xl mb-4`}>
         {icon}
       </div>
-      <h3 className="font-semibold mb-2" style={{ color: KINGS_NAVY }}>{title}</h3>
+      <h3 className="font-semibold text-gray-900 mb-2">{title}</h3>
       <p className="text-sm text-gray-500 mb-4 flex-1">{description}</p>
-      <span
-        className="text-xs px-3 py-1 rounded-full font-semibold self-start"
-        style={{ backgroundColor: badge.bg, color: badge.color }}
-      >
+      <span className={`text-xs px-3 py-1 rounded-full font-medium self-start ${badgeMap[statusColor]}`}>
         {status}
       </span>
     </div>
@@ -61,10 +43,13 @@ const ModuleCard = ({ title, description, icon, status, statusColor }) => {
 }
 
 const Dashboard = () => {
-  const { profile } = useAuth()
+  const { profile, isSuperAdmin } = useAuth()
   const [stats, setStats] = useState({ competitors: 0, keywords: 0, lastScrape: null })
+  const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => { fetchStats() }, [])
+  useEffect(() => {
+    fetchStats()
+  }, [])
 
   const fetchStats = async () => {
     const [compRes, kwRes, logRes] = await Promise.all([
@@ -74,47 +59,87 @@ const Dashboard = () => {
     ])
     setStats({
       competitors: compRes.count ?? 0,
-      keywords:    kwRes.count ?? 0,
-      lastScrape:  logRes.data?.[0]?.completed_at ?? null,
+      keywords: kwRes.count ?? 0,
+      lastScrape: logRes.data?.[0]?.completed_at ?? null,
     })
+  }
+
+  // Super admin only: trigger a manual data refresh
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    await fetchStats()
+    setTimeout(() => setRefreshing(false), 600)
   }
 
   const modules = [
     {
       title: 'Social Media Dashboard',
       description: "Track post counts by type and follower numbers for Kings' own accounts and all competitor schools across Instagram and Facebook.",
-      icon: '📱', statusColor: 'navy', status: 'Phase 2 — Social scrapers',
+      icon: '📱',
+      statusColor: 'blue',
+      status: 'Phase 2 — Social scrapers',
     },
     {
       title: 'Social Listening & Ranking',
       description: "Monitor keyword mentions across Google Reviews, blog pages, and Facebook groups. Score and rank Kings' vs competitors with adjustable weights.",
-      icon: '🔍', statusColor: 'gold', status: 'Phase 4 & 5 — Listening & ranking',
+      icon: '🔍',
+      statusColor: 'green',
+      status: 'Phase 4 & 5 — Listening & ranking',
     },
     {
       title: 'Competitor Ad Intelligence',
       description: 'Automatically capture and display all live competitor ads from Meta Ad Library and Google Ads Transparency Centre in one unified view.',
-      icon: '📢', statusColor: 'crimson', status: 'Phase 3 — Ad scrapers',
+      icon: '📢',
+      statusColor: 'orange',
+      status: 'Phase 3 — Ad scrapers',
     },
   ]
 
   const firstName = profile?.full_name?.split(' ')[0] || ''
 
   return (
-    <Layout showInsights={false}>
-      <div className="p-8">
-        {/* Page header */}
-        <div className="mb-8 flex items-end justify-between">
+    <Layout>
+      <div className="p-8 max-w-6xl">
+
+        {/* Header */}
+        <div className="flex items-start justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold font-display" style={{ color: KINGS_NAVY }}>
+            <h1 className="text-2xl font-bold text-gray-900">
               {firstName ? `Welcome back, ${firstName}` : 'Welcome to KingsIQ'}
             </h1>
-            <p className="text-gray-500 mt-1 text-sm">Kings' Education Digital Marketing Intelligence Platform</p>
+            <p className="text-gray-500 mt-1 text-sm">
+              Kings' Education Digital Marketing Intelligence Platform
+            </p>
           </div>
-          {/* Gold accent bar */}
-          <div className="h-1 w-24 rounded-full" style={{ backgroundColor: KINGS_GOLD }} />
+
+          {/* Refresh button — Super Admin only */}
+          {isSuperAdmin && (
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-2 bg-white border border-gray-200 hover:border-blue-400 hover:text-blue-600 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={refreshing ? 'animate-spin' : ''}
+              >
+                <polyline points="23 4 23 10 17 10" />
+                <polyline points="1 20 1 14 7 14" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+              </svg>
+              {refreshing ? 'Refreshing…' : 'Refresh Data'}
+            </button>
+          )}
         </div>
 
-        {/* Stat cards */}
+        {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-8">
           <StatCard label="Tracked Competitors" value={stats.competitors} sub="schools being monitored" />
           <StatCard label="Active Keywords" value={stats.keywords} sub="including 4 brand defaults" />
@@ -125,32 +150,23 @@ const Dashboard = () => {
           />
         </div>
 
-        {/* Foundation banner */}
-        <div
-          className="rounded-xl p-5 mb-8 flex items-start gap-4"
-          style={{ backgroundColor: 'rgba(0,45,114,0.06)', border: '1px solid rgba(0,45,114,0.12)' }}
-        >
-          <div className="mt-0.5 w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: KINGS_GOLD, marginTop: '4px' }} />
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="font-semibold text-sm" style={{ color: KINGS_NAVY }}>Phase 1 Complete</span>
-              <span
-                className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                style={{ backgroundColor: KINGS_NAVY, color: '#fff' }}
-              >
-                Foundation
-              </span>
-            </div>
-            <p className="text-sm" style={{ color: KINGS_NAVY, opacity: 0.7 }}>
-              Database, authentication, and competitor management are live. The three modules below will be built in Phases 2–5.
-            </p>
+        {/* Build progress */}
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-5 mb-8">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-blue-600 font-semibold text-sm">Phase 1 Complete</span>
+            <span className="bg-blue-600 text-white text-xs px-2 py-0.5 rounded-full">Foundation</span>
           </div>
+          <p className="text-blue-700 text-sm">
+            Database, authentication, and competitor management are live. The three modules below will be built in Phases 2–5.
+          </p>
         </div>
 
-        {/* Modules */}
-        <h2 className="text-base font-semibold mb-4" style={{ color: KINGS_NAVY }}>Platform Modules</h2>
+        {/* Module cards */}
+        <h2 className="text-base font-semibold text-gray-800 mb-4">Platform Modules</h2>
         <div className="grid grid-cols-3 gap-6">
-          {modules.map((mod) => <ModuleCard key={mod.title} {...mod} />)}
+          {modules.map((mod) => (
+            <ModuleCard key={mod.title} {...mod} />
+          ))}
         </div>
       </div>
     </Layout>

@@ -9,6 +9,7 @@ import {
   ChevronDown,
   BarChart3,
 } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
 
@@ -338,6 +339,7 @@ const SchoolCard = ({ snapshot, compareSnapshot, compareMode, history, isKings }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 const Module1 = () => {
+  const { isSuperAdmin } = useAuth()
   const [allSnapshots, setAllSnapshots] = useState([])
   const [loading, setLoading] = useState(true)
   const [scraping, setScraping] = useState(false)
@@ -497,8 +499,8 @@ const Module1 = () => {
             </h1>
             <p className="text-gray-400 text-sm mt-0.5">Instagram post breakdown — Kings' and competitors</p>
           </div>
-          {/* Refresh button */}
-          <div className="flex items-center gap-2">
+          {/* Refresh button — Super Admin only */}
+          {isSuperAdmin && <div className="flex items-center gap-2">
             <select
               value={scrapeMonth}
               onChange={e => setScrapeMonth(e.target.value)}
@@ -521,7 +523,7 @@ const Module1 = () => {
                 : <><RefreshCw size={14} /> Refresh Now</>
               }
             </button>
-          </div>
+          </div>}
         </div>
 
         {/* ── Filter Bar ────────────────────────────────────────── */}
