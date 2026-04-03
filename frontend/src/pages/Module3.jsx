@@ -1272,6 +1272,168 @@ const AdDetailModal = ({ ads, idx, onClose, onNavigate }) => {
   )
 }
 
+// ─── Meta Ads Dashboard ───────────────────────────────────────────────────────
+
+const MetaDashboard = ({ ads, selectedDate }) => {
+  if (!ads || ads.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <LayoutDashboard size={28} className="text-gray-200 mb-3" strokeWidth={1.5} />
+        <p className="text-sm text-gray-400">No data yet — click Refresh Now in the Library tab to scrape ads.</p>
+      </div>
+    )
+  }
+
+  // ── Aggregation helpers ──────────────────────────────────────────────────
+  const total  = ads.length
+  const counts = { Static: 0, Video: 0, Carousel: 0 }
+  ads.forEach(a => { const t = detectAdType(a); if (counts[t] !== undefined) counts[t]++ })
+
+  const objCounts = {}
+  AUDIENCE_CATEGORIES.forEach(c => { objCounts[c.id] = 0 })
+  ads.forEach(a => {
+    const id = a.audience_category || 'others'
+    if (objCounts[id] !== undefined) objCounts[id]++
+    else objCounts['others'] = (objCounts['others'] || 0) + 1
+  })
+
+  // Per-competitor breakdown
+  const competitorNames = [...new Set(ads.map(a => a.competitor_name).filter(Boolean))].sort()
+  const compStats = competitorNames.map(name => {
+    const compAds = ads.filter(a => a.competitor_name === name)
+    const types = { Static: 0, Video: 0, Carousel: 0 }
+    compAds.forEach(a => { const t = detectAdType(a); if (types[t] !== undefined) types[t]++ })
+    const objs = {}
+    AUDIENCE_CATEGORIES.forEach(c => { objs[c.id] = 0 })
+    compAds.forEach(a => {
+      const id = a.audience_category || 'others'
+      if (objs[id] !== undefined) objs[id]++
+      else objs['others'] = (objs['others'] || 0) + 1
+    })
+    return { name, total: compAds.length, types, objs }
+  })
+
+  const pct = (n) => total > 0 ? Math.round((n / total) * 100) : 0
+
+  const TYPE_COLORS = { Static: '#002D72', Video: '#C9A227', Carousel: '#06B6D4' }
+
+  return (
+    <div className="p-6 space-y-6">
+
+      {/* ── Date badge ── */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Viewing</span>
+        <span className="bg-[#002D72] text-white text-xs font-semibold px-3 py-1 rounded-full">
+          {selectedDate || 'Latest'}
+        </span>
+        <span className="text-xs text-gray-400">{total} total ads</span>
+      </div>
+
+      {/* ── Top summary row ── */}
+      <div className="grid grid-cols-4 gap-4">
+        {/* Total */}
+        <div className="bg-[#002D72] text-white rounded-xl p-5">
+          <p className="text-xs font-semibold opacity-70 uppercase tracking-wide mb-1">Total Ads</p>
+          <p className="text-4xl font-bold">{total}</p>
+          <p className="text-xs opacity-60 mt-1">across all competitors</p>
+        </div>
+        {/* Type cards */}
+        {['Static', 'Video', 'Carousel'].map(type => (
+          <div key={type} className="bg-white border border-gray-200 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{type}</p>
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: TYPE_COLORS[type] }}>
+                {pct(counts[type])}%
+              </span>
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{counts[type]}</p>
+            {/* Mini bar */}
+            <div className="mt-3 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-all" style={{ width: `${pct(counts[type])}%`, backgroundColor: TYPE_COLORS[type] }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Objective breakdown ── */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <p className="text-sm font-semibold text-gray-800 mb-4">Breakdown by Objective</p>
+        <div className="space-y-2.5">
+          {AUDIENCE_CATEGORIES.filter(c => objCounts[c.id] > 0).map(c => {
+            const n   = objCounts[c.id]
+            const pct = total > 0 ? Math.round((n / total) * 100) : 0
+            return (
+              <div key={c.id} className="flex items-center gap-3">
+                <div className="w-32 flex-shrink-0 text-xs font-medium" style={{ color: c.color }}>{c.label}</div>
+                <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: c.color }} />
+                </div>
+                <div className="w-8 text-right text-xs font-bold text-gray-700">{n}</div>
+                <div className="w-8 text-right text-xs text-gray-400">{pct}%</div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Per-competitor breakdown ── */}
+      <div>
+        <p className="text-sm font-semibold text-gray-800 mb-3">Per Competitor</p>
+        <div className="space-y-3">
+          {compStats.map(c => (
+            <div key={c.name} className="bg-white border border-gray-200 rounded-xl p-5">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-[#002D72] flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-xs font-bold">{c.name[0]}</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-900">{c.name}</p>
+                    <p className="text-xs text-gray-400">{c.total} active ads</p>
+                  </div>
+                </div>
+                {/* Type pills */}
+                <div className="flex items-center gap-2">
+                  {['Static', 'Video', 'Carousel'].map(type => c.types[type] > 0 && (
+                    <span key={type} className="text-xs font-semibold px-2.5 py-1 rounded-full text-white" style={{ backgroundColor: TYPE_COLORS[type] }}>
+                      {type} {c.types[type]}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Type stacked bar */}
+              <div className="h-2.5 rounded-full overflow-hidden flex mb-4 bg-gray-100">
+                {['Static', 'Video', 'Carousel'].map(type => {
+                  const w = c.total > 0 ? Math.round((c.types[type] / c.total) * 100) : 0
+                  return w > 0 ? (
+                    <div key={type} style={{ width: `${w}%`, backgroundColor: TYPE_COLORS[type] }} title={`${type}: ${c.types[type]}`} />
+                  ) : null
+                })}
+              </div>
+
+              {/* Objective pills */}
+              <div className="flex flex-wrap gap-1.5">
+                {AUDIENCE_CATEGORIES.filter(cat => c.objs[cat.id] > 0).map(cat => (
+                  <span
+                    key={cat.id}
+                    className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border"
+                    style={{ color: cat.color, backgroundColor: cat.bg, borderColor: cat.border }}
+                  >
+                    {cat.label}
+                    <span className="font-bold">{c.objs[cat.id]}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Meta Ads Library Section ─────────────────────────────────────────────────
 
 const MetaAdsLibrary = () => {
@@ -1453,17 +1615,18 @@ const MetaAdsLibrary = () => {
         })}
       </div>
 
-      {/* ── Dashboard / Analysis — coming soon ── */}
-      {(subTab === 'dashboard' || subTab === 'analysis') && (
+      {/* ── Dashboard ── */}
+      {subTab === 'dashboard' && (
+        <MetaDashboard ads={ads} selectedDate={selectedDate} />
+      )}
+
+      {/* ── Analysis — coming soon ── */}
+      {subTab === 'analysis' && (
         <div className="flex flex-col items-center justify-center py-24 text-center p-8">
           <div className="w-14 h-14 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-center mb-4">
-            {subTab === 'dashboard'
-              ? <LayoutDashboard size={24} className="text-gray-300" strokeWidth={1.5} />
-              : <BarChart2 size={24} className="text-gray-300" strokeWidth={1.5} />}
+            <BarChart2 size={24} className="text-gray-300" strokeWidth={1.5} />
           </div>
-          <p className="text-sm font-semibold text-gray-600 mb-2">
-            {subTab === 'dashboard' ? 'Meta Ads Dashboard' : 'Ad Analysis'}
-          </p>
+          <p className="text-sm font-semibold text-gray-600 mb-2">Ad Analysis</p>
           <p className="text-xs text-gray-400 max-w-xs">Coming in the next phase.</p>
           <div className="mt-5 px-4 py-2 rounded-lg" style={{ backgroundColor: 'rgba(201,162,39,0.1)' }}>
             <p className="text-xs font-semibold" style={{ color: '#C9A227' }}>Coming Soon</p>
