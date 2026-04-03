@@ -1434,6 +1434,408 @@ const MetaDashboard = ({ ads, selectedDate }) => {
   )
 }
 
+// ─── Stop words for keyword extraction ───────────────────────────────────────
+const STOP_WORDS = new Set([
+  'the','a','an','in','on','at','to','for','of','and','or','is','are','was',
+  'be','with','we','our','your','their','this','that','from','by','it','as',
+  'not','but','more','will','has','have','do','so','us','all','can','you',
+  'i','my','me','they','them','its','than','then','now','new','up','out',
+  'no','what','how','when','about','which','who','if','she','he','her','his',
+  'get','join','just','like','into','over','also','very','been','had','come',
+  'open','best','make','every','give','take','most','year','know','well',
+])
+
+// ─── Meta Analysis ────────────────────────────────────────────────────────────
+
+const SCHOOL_PALETTE = ['#002D72','#C9A227','#06B6D4','#7C3AED','#059669','#DC2626','#EA580C']
+
+const MetaAnalysis = ({ competitors }) => {
+  const [selectedSchool, setSelectedSchool]     = useState('all')
+  const [filterAdTypes, setFilterAdTypes]       = useState([])
+  const [filterObjectives, setFilterObjectives] = useState([])
+  const [showObjDrop, setShowObjDrop]           = useState(false)
+  const [allData, setAllData]                   = useState([])
+  const [loading, setLoading]                   = useState(true)
+
+  useEffect(() => {
+    supabase
+      .from('meta_ads_results')
+      .select('scrape_date,school_id,school_name,ad_type,audience_category,caption')
+      .then(({ data }) => { setAllData(data || []); setLoading(false) })
+  }, [])
+
+  const toggleType = (t) => setFilterAdTypes(p => p.includes(t) ? p.filter(x => x !== t) : [...p, t])
+  const toggleObj  = (o) => setFilterObjectives(p => p.includes(o) ? p.filter(x => x !== o) : [...p, o])
+
+  // ── Apply all current filters ──────────────────────────────────────────────
+  const filtered = allData.filter(a => {
+    if (selectedSchool !== 'all' && a.school_id !== selectedSchool) return false
+    if (filterAdTypes.length > 0 && !filterAdTypes.includes(detectAdType(a))) return false
+    if (filterObjectives.length > 0 && !filterObjectives.includes(a.audience_category)) return false
+    return true
+  })
+
+  // All unique sorted dates & school names
+  const allDates   = [...new Set(allData.map(a => a.scrape_date).filter(Boolean))].sort()
+  const schoolList = [...new Set(allData.map(a => a.school_name).filter(Boolean))].sort()
+  const displaySchools = selectedSchool === 'all'
+    ? schoolList
+    : [allData.find(a => a.school_id === selectedSchool)?.school_name].filter(Boolean)
+
+  // Color map: school → palette colour
+  const colorOf = (school) => {
+    const idx = schoolList.indexOf(school)
+    return SCHOOL_PALETTE[idx % SCHOOL_PALETTE.length]
+  }
+
+  // ── Heatmap ────────────────────────────────────────────────────────────────
+  const cellCount = (school, date) =>
+    filtered.filter(a => a.school_name === school && a.scrape_date === date).length
+
+  const maxCell = Math.max(
+    ...displaySchools.flatMap(s => allDates.map(d => cellCount(s, d))),
+    1
+  )
+
+  const heatBg = (n) => {
+    if (n === 0) return '#F3F4F6'
+    const p = n / maxCell
+    if (p < 0.2)  return 'rgba(0,45,114,0.12)'
+    if (p < 0.4)  return 'rgba(0,45,114,0.28)'
+    if (p < 0.6)  return 'rgba(0,45,114,0.48)'
+    if (p < 0.8)  return 'rgba(0,45,114,0.68)'
+    return '#002D72'
+  }
+  const heatTxt = (n) => (n / maxCell) > 0.5 ? '#fff' : '#002D72'
+
+  // ── Share of Voice ─────────────────────────────────────────────────────────
+  const sovRows = allDates.map(date => {
+    const rows  = filtered.filter(a => a.scrape_date === date)
+    const total = rows.length
+    const bySchool = {}
+    displaySchools.forEach(s => { bySchool[s] = rows.filter(a => a.school_name === s).length })
+    return { date, total, bySchool }
+  })
+
+  // ── Keyword extraction ─────────────────────────────────────────────────────
+  const keywords = (() => {
+    const freq = {}
+    filtered.forEach(a => {
+      if (!a.caption) return
+      a.caption.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 3 && !STOP_WORDS.has(w))
+        .forEach(w => { freq[w] = (freq[w] || 0) + 1 })
+    })
+    return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 15)
+  })()
+  const maxKw = keywords[0]?.[1] || 1
+
+  // ── Format scrape date ─────────────────────────────────────────────────────
+  const fmtD = (d) => {
+    if (!d) return ''
+    const dt = new Date(d + 'T00:00:00')
+    return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  }
+
+  if (loading) return (
+    <div className="flex items-center gap-2 text-sm text-gray-400 py-20 justify-center">
+      <RefreshCw size={15} className="animate-spin" /> Loading analysis…
+    </div>
+  )
+
+  return (
+    <div className="p-6 space-y-6" onClick={() => showObjDrop && setShowObjDrop(false)}>
+
+      {/* ── Filter bar ── */}
+      <div className="space-y-3">
+        {/* School pills */}
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setSelectedSchool('all')}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition"
+            style={selectedSchool === 'all'
+              ? { backgroundColor: '#002D72', color: '#fff', borderColor: '#002D72' }
+              : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+          >
+            All Schools
+            <span className={`px-1.5 py-px rounded-full text-[10px] font-bold ${selectedSchool === 'all' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>
+              {allData.length}
+            </span>
+          </button>
+          {competitors.map((comp, ci) => {
+            const active = selectedSchool === comp.id
+            const count  = allData.filter(a => a.school_id === comp.id).length
+            const col    = SCHOOL_PALETTE[ci % SCHOOL_PALETTE.length]
+            return (
+              <button
+                key={comp.id}
+                onClick={() => setSelectedSchool(comp.id)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition"
+                style={active
+                  ? { backgroundColor: '#C9A227', color: '#002D72', borderColor: '#C9A227' }
+                  : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+              >
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: col }} />
+                {comp.name}
+                <span className={`px-1.5 py-px rounded-full text-[10px] font-bold ${active ? 'bg-[#002D72]/20 text-[#002D72]' : 'bg-gray-100 text-gray-500'}`}>
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Type toggles + Objective dropdown + count */}
+        <div className="flex flex-wrap items-center gap-2" onClick={e => e.stopPropagation()}>
+          {AD_TYPES.map(type => {
+            const active = filterAdTypes.includes(type)
+            const count  = filtered.filter(a => detectAdType(a) === type).length
+            return (
+              <button
+                key={type}
+                onClick={() => toggleType(type)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition"
+                style={active
+                  ? { backgroundColor: '#002D72', color: '#fff', borderColor: '#002D72' }
+                  : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+              >
+                {type}
+                <span className={`px-1.5 py-px rounded-full text-[10px] font-bold ${active ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+
+          {/* Objective dropdown */}
+          <div className="relative" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setShowObjDrop(o => !o)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold border rounded-lg transition"
+              style={filterObjectives.length > 0
+                ? { backgroundColor: '#C9A227', color: '#002D72', borderColor: '#C9A227' }
+                : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+            >
+              <Target size={12} strokeWidth={2} />
+              Objective
+              {filterObjectives.length > 0 && (
+                <span className="px-1.5 py-px rounded-full text-[10px] font-bold bg-[#002D72] text-white">
+                  {filterObjectives.length}
+                </span>
+              )}
+              <ChevronDown size={11} strokeWidth={2.5} />
+            </button>
+            {showObjDrop && (
+              <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-30 p-2 w-52">
+                {AUDIENCE_CATEGORIES.map(c => {
+                  const active = filterObjectives.includes(c.id)
+                  const count  = filtered.filter(a => a.audience_category === c.id).length
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => toggleObj(c.id)}
+                      className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-50 transition"
+                      style={{ color: active ? c.color : '#374151' }}
+                    >
+                      <div className="flex items-center gap-2">
+                        {active
+                          ? <Check size={11} strokeWidth={2.5} style={{ color: c.color }} />
+                          : <span className="w-[11px]" />}
+                        {c.label}
+                      </div>
+                      <span className="text-gray-400 text-[10px]">{count}</span>
+                    </button>
+                  )
+                })}
+                {filterObjectives.length > 0 && (
+                  <button
+                    onClick={() => { setFilterObjectives([]); setShowObjDrop(false) }}
+                    className="w-full text-center text-[11px] text-gray-400 hover:text-gray-600 pt-2 pb-1 border-t border-gray-100 mt-1"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <span className="text-xs text-gray-400 ml-1">
+            {filtered.length} ads across all dates
+          </span>
+        </div>
+      </div>
+
+      {/* ── Activity Heatmap ── */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <div>
+            <p className="text-sm font-semibold text-gray-800">Activity Heatmap</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Active ads per competitor per scrape · darker = more ads
+            </p>
+          </div>
+          {/* Colour legend */}
+          <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+            <span>Low</span>
+            {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
+              <div
+                key={i}
+                className="w-6 h-5 rounded"
+                style={{ backgroundColor: heatBg(Math.round(p * maxCell)) }}
+              />
+            ))}
+            <span>High</span>
+          </div>
+        </div>
+
+        {allDates.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-10">No historical data yet — scrape some ads first.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-separate" style={{ borderSpacing: '3px' }}>
+              <thead>
+                <tr>
+                  <th className="text-left text-[10px] font-semibold text-gray-400 pb-1 pr-3 w-36 min-w-[140px]" />
+                  {allDates.map(d => (
+                    <th key={d} className="text-center text-[10px] font-semibold text-gray-400 pb-1 px-0 min-w-[52px]">
+                      {fmtD(d)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {displaySchools.map(school => (
+                  <tr key={school}>
+                    <td className="pr-3 py-0 text-[11px] font-medium text-gray-700 whitespace-nowrap align-middle">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: colorOf(school) }} />
+                        {school}
+                      </div>
+                    </td>
+                    {allDates.map(date => {
+                      const n = cellCount(school, date)
+                      return (
+                        <td key={date} className="p-0 align-middle">
+                          <div
+                            className="rounded-lg flex items-center justify-center text-[11px] font-bold"
+                            style={{
+                              width: 52, height: 38,
+                              backgroundColor: heatBg(n),
+                              color: n === 0 ? '#D1D5DB' : heatTxt(n),
+                            }}
+                            title={`${school} · ${fmtD(date)} · ${n} ads`}
+                          >
+                            {n === 0 ? '—' : n}
+                          </div>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Share of Voice over Time ── */}
+      {sovRows.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <p className="text-sm font-semibold text-gray-800 mb-1">Share of Voice</p>
+          <p className="text-xs text-gray-400 mb-4">% of total active ads per competitor per scrape date</p>
+          <div className="space-y-3">
+            {sovRows.map(({ date, total, bySchool }) => (
+              <div key={date}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] text-gray-400 font-medium">{fmtD(date)}</span>
+                  <span className="text-[10px] text-gray-400">{total} ads</span>
+                </div>
+                {total > 0 ? (
+                  <div className="flex h-7 rounded-lg overflow-hidden gap-px">
+                    {displaySchools.map(s => {
+                      const count = bySchool[s] || 0
+                      const pct   = total > 0 ? (count / total) * 100 : 0
+                      return pct > 0 ? (
+                        <div
+                          key={s}
+                          style={{ width: `${pct}%`, backgroundColor: colorOf(s) }}
+                          title={`${s}: ${count} (${Math.round(pct)}%)`}
+                          className="flex items-center justify-center overflow-hidden transition-all"
+                        >
+                          {pct > 9 && (
+                            <span className="text-white text-[10px] font-bold">{Math.round(pct)}%</span>
+                          )}
+                        </div>
+                      ) : null
+                    })}
+                  </div>
+                ) : (
+                  <div className="h-7 bg-gray-100 rounded-lg" />
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Legend */}
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-4 pt-4 border-t border-gray-100">
+            {displaySchools.map(s => (
+              <div key={s} className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: colorOf(s) }} />
+                <span className="text-[11px] text-gray-600">{s}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Keyword Analysis ── */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="mb-4">
+          <p className="text-sm font-semibold text-gray-800">Top Keywords from Captions</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Extracted from {filtered.filter(a => a.caption).length} ads with caption text
+            {selectedSchool !== 'all' && ' · filtered by selected school'}
+          </p>
+        </div>
+        {keywords.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-10">No caption data available for current filters.</p>
+        ) : (
+          <div className="space-y-2">
+            {keywords.map(([word, count], i) => {
+              const pct   = (count / maxKw) * 100
+              const isTop = i < 3
+              return (
+                <div key={word} className="flex items-center gap-3">
+                  <span className="text-[10px] text-gray-300 font-mono w-4 text-right select-none">{i + 1}</span>
+                  <span className="w-28 flex-shrink-0 text-xs font-semibold text-gray-700 capitalize">{word}</span>
+                  <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full flex items-center justify-end pr-2 transition-all"
+                      style={{
+                        width: `${Math.max(pct, 6)}%`,
+                        backgroundColor: isTop ? '#002D72' : i < 8 ? 'rgba(0,45,114,0.4)' : '#D1D5DB',
+                      }}
+                    >
+                      {pct > 22 && (
+                        <span className="text-[9px] font-bold" style={{ color: isTop ? '#fff' : '#6B7280' }}>
+                          {count}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-gray-600 w-8 text-right">{count}</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+    </div>
+  )
+}
+
 // ─── Meta Ads Library Section ─────────────────────────────────────────────────
 
 const MetaAdsLibrary = () => {
@@ -1620,18 +2022,9 @@ const MetaAdsLibrary = () => {
         <MetaDashboard ads={ads} selectedDate={selectedDate} />
       )}
 
-      {/* ── Analysis — coming soon ── */}
+      {/* ── Analysis ── */}
       {subTab === 'analysis' && (
-        <div className="flex flex-col items-center justify-center py-24 text-center p-8">
-          <div className="w-14 h-14 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-center mb-4">
-            <BarChart2 size={24} className="text-gray-300" strokeWidth={1.5} />
-          </div>
-          <p className="text-sm font-semibold text-gray-600 mb-2">Ad Analysis</p>
-          <p className="text-xs text-gray-400 max-w-xs">Coming in the next phase.</p>
-          <div className="mt-5 px-4 py-2 rounded-lg" style={{ backgroundColor: 'rgba(201,162,39,0.1)' }}>
-            <p className="text-xs font-semibold" style={{ color: '#C9A227' }}>Coming Soon</p>
-          </div>
-        </div>
+        <MetaAnalysis competitors={competitors} />
       )}
 
       {/* ── Library tab ── */}
