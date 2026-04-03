@@ -1475,8 +1475,7 @@ const MetaAnalysis = ({ competitors }) => {
     return true
   })
 
-  // All unique sorted dates & school names
-  const allDates   = [...new Set(allData.map(a => a.scrape_date).filter(Boolean))].sort()
+  // All unique sorted school names
   const schoolList = [...new Set(allData.map(a => a.school_name).filter(Boolean))].sort()
   const displaySchools = selectedSchool === 'all'
     ? schoolList
@@ -1488,12 +1487,36 @@ const MetaAnalysis = ({ competitors }) => {
     return SCHOOL_PALETTE[idx % SCHOOL_PALETTE.length]
   }
 
-  // ── Heatmap ────────────────────────────────────────────────────────────────
-  const cellCount = (school, date) =>
-    filtered.filter(a => a.school_name === school && a.scrape_date === date).length
+  // ── Month helpers ──────────────────────────────────────────────────────────
+  // "2025-06-02" → "2025-06"
+  const toMonth = (d) => d ? d.slice(0, 7) : null
+
+  // Format "2025-06" → "Jun '25"
+  const fmtMonth = (m) => {
+    if (!m) return ''
+    const dt = new Date(m + '-01T00:00:00')
+    return dt.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' })
+  }
+
+  // All unique months (sorted) across ALL data (unfiltered, so columns stay stable)
+  const allMonths = [...new Set(allData.map(a => toMonth(a.scrape_date)).filter(Boolean))].sort()
+
+  // ── Heatmap: max ads for a school in any single scrape within each month ───
+  const monthCellCount = (school, month) => {
+    // All scrape dates within this month that have data for this school (after filters)
+    const datesInMonth = [...new Set(
+      filtered
+        .filter(a => a.school_name === school && toMonth(a.scrape_date) === month)
+        .map(a => a.scrape_date)
+    )]
+    if (datesInMonth.length === 0) return 0
+    return Math.max(...datesInMonth.map(d =>
+      filtered.filter(a => a.school_name === school && a.scrape_date === d).length
+    ))
+  }
 
   const maxCell = Math.max(
-    ...displaySchools.flatMap(s => allDates.map(d => cellCount(s, d))),
+    ...displaySchools.flatMap(s => allMonths.map(m => monthCellCount(s, m))),
     1
   )
 
@@ -1508,13 +1531,12 @@ const MetaAnalysis = ({ competitors }) => {
   }
   const heatTxt = (n) => (n / maxCell) > 0.5 ? '#fff' : '#002D72'
 
-  // ── Share of Voice ─────────────────────────────────────────────────────────
-  const sovRows = allDates.map(date => {
-    const rows  = filtered.filter(a => a.scrape_date === date)
-    const total = rows.length
+  // ── Share of Voice: per month, each school's peak scrape count ─────────────
+  const sovRows = allMonths.map(month => {
     const bySchool = {}
-    displaySchools.forEach(s => { bySchool[s] = rows.filter(a => a.school_name === s).length })
-    return { date, total, bySchool }
+    displaySchools.forEach(s => { bySchool[s] = monthCellCount(s, month) })
+    const total = displaySchools.reduce((sum, s) => sum + (bySchool[s] || 0), 0)
+    return { month, total, bySchool }
   })
 
   // ── Keyword extraction ─────────────────────────────────────────────────────
@@ -1531,13 +1553,6 @@ const MetaAnalysis = ({ competitors }) => {
     return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 15)
   })()
   const maxKw = keywords[0]?.[1] || 1
-
-  // ── Format scrape date ─────────────────────────────────────────────────────
-  const fmtD = (d) => {
-    if (!d) return ''
-    const dt = new Date(d + 'T00:00:00')
-    return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-  }
 
   if (loading) return (
     <div className="flex items-center gap-2 text-sm text-gray-400 py-20 justify-center">
@@ -1667,13 +1682,13 @@ const MetaAnalysis = ({ competitors }) => {
         </div>
       </div>
 
-      {/* ── Activity Heatmap ── */}
+      {/* ── Activity Heatmap (monthly) ── */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div>
             <p className="text-sm font-semibold text-gray-800">Activity Heatmap</p>
             <p className="text-xs text-gray-400 mt-0.5">
-              Active ads per competitor per scrape · darker = more ads
+              Peak weekly ad count per competitor per month · darker = more ads
             </p>
           </div>
           {/* Colour legend */}
@@ -1690,7 +1705,7 @@ const MetaAnalysis = ({ competitors }) => {
           </div>
         </div>
 
-        {allDates.length === 0 ? (
+        {allMonths.length === 0 ? (
           <p className="text-xs text-gray-400 text-center py-10">No historical data yet — scrape some ads first.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -1698,9 +1713,9 @@ const MetaAnalysis = ({ competitors }) => {
               <thead>
                 <tr>
                   <th className="text-left text-[10px] font-semibold text-gray-400 pb-1 pr-3 w-36 min-w-[140px]" />
-                  {allDates.map(d => (
-                    <th key={d} className="text-center text-[10px] font-semibold text-gray-400 pb-1 px-0 min-w-[52px]">
-                      {fmtD(d)}
+                  {allMonths.map(m => (
+                    <th key={m} className="text-center text-[10px] font-semibold text-gray-400 pb-1 px-0 min-w-[60px]">
+                      {fmtMonth(m)}
                     </th>
                   ))}
                 </tr>
@@ -1714,18 +1729,18 @@ const MetaAnalysis = ({ competitors }) => {
                         {school}
                       </div>
                     </td>
-                    {allDates.map(date => {
-                      const n = cellCount(school, date)
+                    {allMonths.map(month => {
+                      const n = monthCellCount(school, month)
                       return (
-                        <td key={date} className="p-0 align-middle">
+                        <td key={month} className="p-0 align-middle">
                           <div
                             className="rounded-lg flex items-center justify-center text-[11px] font-bold"
                             style={{
-                              width: 52, height: 38,
+                              width: 56, height: 38,
                               backgroundColor: heatBg(n),
                               color: n === 0 ? '#D1D5DB' : heatTxt(n),
                             }}
-                            title={`${school} · ${fmtD(date)} · ${n} ads`}
+                            title={`${school} · ${fmtMonth(month)} · peak ${n} ads`}
                           >
                             {n === 0 ? '—' : n}
                           </div>
@@ -1740,17 +1755,19 @@ const MetaAnalysis = ({ competitors }) => {
         )}
       </div>
 
-      {/* ── Share of Voice over Time ── */}
+      {/* ── Share of Voice (monthly) ── */}
       {sovRows.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <p className="text-sm font-semibold text-gray-800 mb-1">Share of Voice</p>
-          <p className="text-xs text-gray-400 mb-4">% of total active ads per competitor per scrape date</p>
+          <p className="text-xs text-gray-400 mb-4">
+            Monthly % share based on each competitor's peak weekly ad count
+          </p>
           <div className="space-y-3">
-            {sovRows.map(({ date, total, bySchool }) => (
-              <div key={date}>
+            {sovRows.map(({ month, total, bySchool }) => (
+              <div key={month}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] text-gray-400 font-medium">{fmtD(date)}</span>
-                  <span className="text-[10px] text-gray-400">{total} ads</span>
+                  <span className="text-[10px] text-gray-500 font-semibold">{fmtMonth(month)}</span>
+                  <span className="text-[10px] text-gray-400">{total} ads (peak)</span>
                 </div>
                 {total > 0 ? (
                   <div className="flex h-7 rounded-lg overflow-hidden gap-px">
@@ -1761,7 +1778,7 @@ const MetaAnalysis = ({ competitors }) => {
                         <div
                           key={s}
                           style={{ width: `${pct}%`, backgroundColor: colorOf(s) }}
-                          title={`${s}: ${count} (${Math.round(pct)}%)`}
+                          title={`${s}: ${count} ads (${Math.round(pct)}%)`}
                           className="flex items-center justify-center overflow-hidden transition-all"
                         >
                           {pct > 9 && (
@@ -1772,7 +1789,9 @@ const MetaAnalysis = ({ competitors }) => {
                     })}
                   </div>
                 ) : (
-                  <div className="h-7 bg-gray-100 rounded-lg" />
+                  <div className="h-7 bg-gray-100 rounded-lg flex items-center justify-center">
+                    <span className="text-[10px] text-gray-300">No data</span>
+                  </div>
                 )}
               </div>
             ))}
