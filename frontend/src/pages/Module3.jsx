@@ -1297,10 +1297,10 @@ const MetaDashboard = ({ ads, selectedDate }) => {
     else objCounts['others'] = (objCounts['others'] || 0) + 1
   })
 
-  // Per-competitor breakdown
-  const competitorNames = [...new Set(ads.map(a => a.competitor_name).filter(Boolean))].sort()
+  // Per-competitor breakdown  (DB column is school_name)
+  const competitorNames = [...new Set(ads.map(a => a.school_name).filter(Boolean))].sort()
   const compStats = competitorNames.map(name => {
-    const compAds = ads.filter(a => a.competitor_name === name)
+    const compAds = ads.filter(a => a.school_name === name)
     const types = { Static: 0, Video: 0, Carousel: 0 }
     compAds.forEach(a => { const t = detectAdType(a); if (types[t] !== undefined) types[t]++ })
     const objs = {}
